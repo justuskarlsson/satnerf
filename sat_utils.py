@@ -11,21 +11,25 @@ import json
 import glob
 import rpcm
 
+
 def get_file_id(filename):
     """
     return what is left after removing directory and extension from a path
     """
     return os.path.splitext(os.path.basename(filename))[0]
 
+
 def read_dict_from_json(input_path):
     with open(input_path) as f:
         d = json.load(f)
     return d
 
+
 def write_dict_to_json(d, output_path):
     with open(output_path, "w") as f:
         json.dump(d, f, indent=2)
     return d
+
 
 def rpc_scaling_params(v):
     """
@@ -35,6 +39,7 @@ def rpc_scaling_params(v):
     scale = (vec.max() - vec.min()) / 2
     offset = vec.min() + scale
     return scale, offset
+
 
 def rescale_rpc(rpc, alpha):
     """
@@ -56,6 +61,7 @@ def rescale_rpc(rpc, alpha):
     rpc_scaled.col_offset *= float(alpha)
     return rpc_scaled
 
+
 def latlon_to_ecef_custom(lat, lon, alt):
     """
     convert from geodetic (lat, lon, alt) to geocentric coordinates (x, y, z)
@@ -73,26 +79,30 @@ def latlon_to_ecef_custom(lat, lon, alt):
     z = (v * (1 - e2) + alt) * np.sin(rad_lat)
     return x, y, z
 
+
 def ecef_to_latlon_custom(x, y, z):
     """
     convert from geocentric coordinates (x, y, z) to geodetic (lat, lon, alt)
     """
     a = 6378137.0
     e = 8.1819190842622e-2
-    asq = a ** 2
-    esq = e ** 2
+    asq = a**2
+    esq = e**2
     b = np.sqrt(asq * (1 - esq))
-    bsq = b ** 2
+    bsq = b**2
     ep = np.sqrt((asq - bsq) / bsq)
-    p = np.sqrt((x ** 2) + (y ** 2))
+    p = np.sqrt((x**2) + (y**2))
     th = np.arctan2(a * z, b * p)
     lon = np.arctan2(y, x)
-    lat = np.arctan2((z + (ep ** 2) * b * (np.sin(th) ** 3)), (p - esq * a * (np.cos(th) ** 3)))
+    lat = np.arctan2(
+        (z + (ep**2) * b * (np.sin(th) ** 3)), (p - esq * a * (np.cos(th) ** 3))
+    )
     N = a / (np.sqrt(1 - esq * (np.sin(lat) ** 2)))
     alt = p / np.cos(lat) - N
     lon = lon * 180 / np.pi
     lat = lat * 180 / np.pi
     return lat, lon, alt
+
 
 def utm_from_latlon(lats, lons):
     """
@@ -108,10 +118,18 @@ def utm_from_latlon(lats, lons):
     proj_dst = pyproj.Proj("+proj=utm +zone={}{}".format(n, l))
     transformer = Transformer.from_proj(proj_src, proj_dst)
     easts, norths = transformer.transform(lons, lats)
-    #easts, norths = pyproj.transform(proj_src, proj_dst, lons, lats)
+    # easts, norths = pyproj.transform(proj_src, proj_dst, lons, lats)
     return easts, norths
 
-def dsm_pointwise_diff(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=None, out_rdsm_path=None, out_err_path=None):
+
+def dsm_pointwise_diff(
+    in_dsm_path,
+    gt_dsm_path,
+    dsm_metadata,
+    gt_mask_path=None,
+    out_rdsm_path=None,
+    out_err_path=None,
+):
     """
     in_dsm_path is a string with the path to the NeRF generated dsm
     gt_dsm_path is a string with the path to the reference lidar dsm
@@ -131,7 +149,12 @@ def dsm_pointwise_diff(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=None
     resolution = dsm_metadata[3]
 
     # define projwin for gdal translate
-    ulx, uly, lrx, lry = xoff, yoff + ysize * resolution, xoff + xsize * resolution, yoff
+    ulx, uly, lrx, lry = (
+        xoff,
+        yoff + ysize * resolution,
+        xoff + xsize * resolution,
+        yoff,
+    )
 
     # crop predicted dsm using gdal translate
     ds = gdal.Open(in_dsm_path)
@@ -147,7 +170,7 @@ def dsm_pointwise_diff(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=None
         with rasterio.open(pred_dsm_path, "r") as f:
             profile = f.profile
             pred_dsm = f.read()[0, :, :]
-        with rasterio.open(pred_dsm_path, 'w', **profile) as dst:
+        with rasterio.open(pred_dsm_path, "w", **profile) as dst:
             pred_dsm[water_mask.astype(bool)] = np.nan
             dst.write(pred_dsm, 1)
 
@@ -163,15 +186,20 @@ def dsm_pointwise_diff(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=None
     try:
         import dsmr
     except:
-        print("Warning: dsmr not found ! DSM registration will only use the Z dimension")
+        print(
+            "Warning: dsmr not found ! DSM registration will only use the Z dimension"
+        )
         fix_xy = True
     if fix_xy:
         pred_rdsm = pred_dsm + np.nanmean((gt_dsm - pred_dsm).ravel())
-        with rasterio.open(pred_rdsm_path, 'w', **profile) as dst:
+        with rasterio.open(pred_rdsm_path, "w", **profile) as dst:
             dst.write(pred_rdsm, 1)
     else:
         import dsmr
-        transform = dsmr.compute_shift(gt_dsm_path, pred_dsm_path, scaling=False)
+
+        transform = dsmr.compute_shift(
+            gt_dsm_path, pred_dsm_path, scaling=False
+        )
         dsmr.apply_shift(pred_dsm_path, pred_rdsm_path, *transform)
         with rasterio.open(pred_rdsm_path, "r") as f:
             pred_rdsm = f.read()[0, :, :]
@@ -189,12 +217,15 @@ def dsm_pointwise_diff(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=None
         if os.path.exists(out_err_path):
             os.remove(out_err_path)
         os.makedirs(os.path.dirname(out_err_path), exist_ok=True)
-        with rasterio.open(out_err_path, 'w', **profile) as dst:
+        with rasterio.open(out_err_path, "w", **profile) as dst:
             dst.write(err, 1)
 
     return err
 
-def compute_mae_and_save_dsm_diff(pred_dsm_path, src_id, gt_dir, out_dir, epoch_number, save=True):
+
+def compute_mae_and_save_dsm_diff(
+    pred_dsm_path, src_id, gt_dir, out_dir, epoch_number, save=True
+):
     # save dsm errs
     aoi_id = src_id[:7]
     gt_dsm_path = os.path.join(gt_dir, "{}_DSM.tif".format(aoi_id))
@@ -207,20 +238,35 @@ def compute_mae_and_save_dsm_diff(pred_dsm_path, src_id, gt_dir, out_dir, epoch_
     assert os.path.exists(gt_dsm_path), f"{gt_dsm_path} not found"
     assert os.path.exists(gt_seg_path), f"{gt_seg_path} not found"
     from sat_utils import dsm_pointwise_diff
+
     gt_roi_metadata = np.loadtxt(gt_roi_path)
-    rdsm_diff_path = os.path.join(out_dir, "{}_rdsm_diff_epoch{}.tif".format(src_id, epoch_number))
-    rdsm_path = os.path.join(out_dir, "{}_rdsm_epoch{}.tif".format(src_id, epoch_number))
-    diff = dsm_pointwise_diff(pred_dsm_path, gt_dsm_path, gt_roi_metadata, gt_mask_path=gt_seg_path,
-                                       out_rdsm_path=rdsm_path, out_err_path=rdsm_diff_path)
-    #os.system(f"rm tmp*.tif.xml")
+    rdsm_diff_path = os.path.join(
+        out_dir, "{}_rdsm_diff_epoch{}.tif".format(src_id, epoch_number)
+    )
+    rdsm_path = os.path.join(
+        out_dir, "{}_rdsm_epoch{}.tif".format(src_id, epoch_number)
+    )
+    diff = dsm_pointwise_diff(
+        pred_dsm_path,
+        gt_dsm_path,
+        gt_roi_metadata,
+        gt_mask_path=gt_seg_path,
+        out_rdsm_path=rdsm_path,
+        out_err_path=rdsm_diff_path,
+    )
+    # os.system(f"rm tmp*.tif.xml")
     if not save:
         os.remove(rdsm_diff_path)
         os.remove(rdsm_path)
     return np.nanmean(abs(diff.ravel()))
 
+
 def dsm_mae(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=None):
-    abs_err = dsm_pointwise_abs_errors(in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=gt_mask_path)
+    abs_err = dsm_pointwise_abs_errors(
+        in_dsm_path, gt_dsm_path, dsm_metadata, gt_mask_path=gt_mask_path
+    )
     return np.nanmean(abs_err.ravel())
+
 
 def sort_by_increasing_view_incidence_angle(root_dir):
     incidence_angles = []
@@ -230,9 +276,12 @@ def sort_by_increasing_view_incidence_angle(root_dir):
             d = json.load(f)
         rpc = rpcm.RPCModel(d["rpc"], dict_format="rpcm")
         c_lon, c_lat = d["geojson"]["center"][0], d["geojson"]["center"][1]
-        alpha, _ = rpc.incidence_angles(c_lon, c_lat, z=0) # alpha = view incidence angle in degrees
+        alpha, _ = rpc.incidence_angles(
+            c_lon, c_lat, z=0
+        )  # alpha = view incidence angle in degrees
         incidence_angles.append(alpha)
     return [x for _, x in sorted(zip(incidence_angles, json_paths))]
+
 
 def sort_by_increasing_solar_incidence_angle(root_dir):
     solar_incidence_angles = []
@@ -242,13 +291,22 @@ def sort_by_increasing_solar_incidence_angle(root_dir):
             d = json.load(f)
         sun_el = np.radians(float(d["sun_elevation"]))
         sun_az = np.radians(float(d["sun_azimuth"]))
-        sun_d = np.array([np.sin(sun_az) * np.cos(sun_el), np.cos(sun_az) * np.cos(sun_el), np.sin(sun_el)])
-        surface_normal = np.array([0., 0., 1.0])
+        sun_d = np.array(
+            [
+                np.sin(sun_az) * np.cos(sun_el),
+                np.cos(sun_az) * np.cos(sun_el),
+                np.sin(sun_el),
+            ]
+        )
+        surface_normal = np.array([0.0, 0.0, 1.0])
         u1 = sun_d / np.linalg.norm(sun_d)
         u2 = surface_normal / np.linalg.norm(surface_normal)
-        alpha = np.degrees(np.arccos(np.dot(u1, u2))) # alpha = solar incidence angle in degrees
+        alpha = np.degrees(
+            np.arccos(np.dot(u1, u2))
+        )  # alpha = solar incidence angle in degrees
         solar_incidence_angles.append(alpha)
     return [x for _, x in sorted(zip(solar_incidence_angles, json_paths))]
+
 
 def sort_by_acquisition_date(root_dir):
     acquisition_dates = []
@@ -257,8 +315,11 @@ def sort_by_acquisition_date(root_dir):
         with open(json_p) as f:
             d = json.load(f)
         date_str = d["acquisition_date"]
-        acquisition_dates.append(datetime.datetime.strptime(date_str, '%Y%m%d%H%M%S'))
+        acquisition_dates.append(
+            datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
+        )
     return [x for _, x in sorted(zip(acquisition_dates, json_paths))]
+
 
 def sort_by_day_of_the_year(root_dir):
     acquisition_dates = []
@@ -267,5 +328,13 @@ def sort_by_day_of_the_year(root_dir):
         with open(json_p) as f:
             d = json.load(f)
         date_str = d["acquisition_date"]
-        acquisition_dates.append(datetime.datetime.strptime(date_str, '%Y%m%d%H%M%S'))
-    return [x for _, x in sorted(zip(acquisition_dates, json_paths), key=lambda x: x[0].timetuple().tm_yday)]
+        acquisition_dates.append(
+            datetime.datetime.strptime(date_str, "%Y%m%d%H%M%S")
+        )
+    return [
+        x
+        for _, x in sorted(
+            zip(acquisition_dates, json_paths),
+            key=lambda x: x[0].timetuple().tm_yday,
+        )
+    ]

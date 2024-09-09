@@ -15,31 +15,34 @@ import rpcm
 import glob
 import sat_utils
 
+
 def get_rays(cols, rows, rpc, min_alt, max_alt):
     """
-            Draw a set of rays from a satellite image
-            Each ray is defined by an origin 3d point + a direction vector
-            First the bounds of each ray are found by localizing each pixel at min and max altitude
-            Then the corresponding direction vector is found by the difference between such bounds
-            Args:
-                cols: 1d array with image column coordinates
-                rows: 1d array with image row coordinates
-                rpc: RPC model with the localization function associated to the satellite image
-                min_alt: float, the minimum altitude observed in the image
-                max_alt: float, the maximum altitude observed in the image
-            Returns:
-                rays: (h*w, 8) tensor of floats encoding h*w rays
-                      columns 0,1,2 correspond to the rays origin
-                      columns 3,4,5 correspond to the direction vector
-                      columns 6,7 correspond to the distance of the ray bounds with respect to the camera
-            """
+    Draw a set of rays from a satellite image
+    Each ray is defined by an origin 3d point + a direction vector
+    First the bounds of each ray are found by localizing each pixel at min and max altitude
+    Then the corresponding direction vector is found by the difference between such bounds
+    Args:
+        cols: 1d array with image column coordinates
+        rows: 1d array with image row coordinates
+        rpc: RPC model with the localization function associated to the satellite image
+        min_alt: float, the minimum altitude observed in the image
+        max_alt: float, the maximum altitude observed in the image
+    Returns:
+        rays: (h*w, 8) tensor of floats encoding h*w rays
+              columns 0,1,2 correspond to the rays origin
+              columns 3,4,5 correspond to the direction vector
+              columns 6,7 correspond to the distance of the ray bounds with respect to the camera
+    """
 
     min_alts = float(min_alt) * np.ones(cols.shape)
     max_alts = float(max_alt) * np.ones(cols.shape)
 
     # assume the points of maximum altitude are those closest to the camera
     lons, lats = rpc.localization(cols, rows, max_alts)
-    x_near, y_near, z_near = sat_utils.latlon_to_ecef_custom(lats, lons, max_alts)
+    x_near, y_near, z_near = sat_utils.latlon_to_ecef_custom(
+        lats, lons, max_alts
+    )
     xyz_near = np.vstack([x_near, y_near, z_near]).T
 
     # similarly, the points of minimum altitude are the furthest away from the camera
@@ -60,13 +63,18 @@ def get_rays(cols, rows, rpc, min_alt, max_alt):
     nears = float(0) * np.ones(fars.shape)
 
     # create a stack with the rays origin, direction vector and near-far bounds
-    rays = torch.from_numpy(np.hstack([rays_o, rays_d, nears[:, np.newaxis], fars[:, np.newaxis]]))
+    rays = torch.from_numpy(
+        np.hstack([rays_o, rays_d, nears[:, np.newaxis], fars[:, np.newaxis]])
+    )
     rays = rays.type(torch.FloatTensor)
     return rays
 
-def load_tensor_from_rgb_geotiff(img_path, downscale_factor, imethod=Image.BICUBIC):
-    with rasterio.open(img_path, 'r') as f:
-        img = np.transpose(f.read(), (1, 2, 0)) / 255.
+
+def load_tensor_from_rgb_geotiff(
+    img_path, downscale_factor, imethod=Image.BICUBIC
+):
+    with rasterio.open(img_path, "r") as f:
+        img = np.transpose(f.read(), (1, 2, 0)) / 255.0
     h, w = img.shape[:2]
     if downscale_factor > 1:
         w = int(w // downscale_factor)
@@ -81,7 +89,14 @@ def load_tensor_from_rgb_geotiff(img_path, downscale_factor, imethod=Image.BICUB
 
 
 class SatelliteDataset(Dataset):
-    def __init__(self, root_dir, img_dir, split="train", img_downscale=1.0, cache_dir=None):
+    def __init__(
+        self,
+        root_dir,
+        img_dir,
+        split="train",
+        img_downscale=1.0,
+        cache_dir=None,
+    ):
         """
         NeRF Satellite Dataset
         Args:
@@ -104,9 +119,17 @@ class SatelliteDataset(Dataset):
         # load scaling params
         if not os.path.exists(f"{self.json_dir}/scene.loc"):
             self.init_scaling_params()
-        d = sat_utils.read_dict_from_json(os.path.join(self.json_dir, "scene.loc"))
-        self.center = torch.tensor([float(d["X_offset"]), float(d["Y_offset"]), float(d["Z_offset"])])
-        self.range = torch.max(torch.tensor([float(d["X_scale"]), float(d["Y_scale"]), float(d["Z_scale"])]))
+        d = sat_utils.read_dict_from_json(
+            os.path.join(self.json_dir, "scene.loc")
+        )
+        self.center = torch.tensor(
+            [float(d["X_offset"]), float(d["Y_offset"]), float(d["Z_offset"])]
+        )
+        self.range = torch.max(
+            torch.tensor(
+                [float(d["X_scale"]), float(d["Y_scale"]), float(d["Z_scale"])]
+            )
+        )
 
         # load dataset split
         if self.train:
@@ -117,33 +140,50 @@ class SatelliteDataset(Dataset):
     def load_train_split(self):
         with open(os.path.join(self.json_dir, "train.txt"), "r") as f:
             json_files = f.read().split("\n")
-        self.json_files = [os.path.join(self.json_dir, json_p) for json_p in json_files]
-        self.all_rays, self.all_rgbs, self.all_ids = self.load_data(self.json_files, verbose=True)
+        self.json_files = [
+            os.path.join(self.json_dir, json_p) for json_p in json_files
+        ]
+        self.all_rays, self.all_rgbs, self.all_ids = self.load_data(
+            self.json_files, verbose=True
+        )
 
     def load_val_split(self):
         with open(os.path.join(self.json_dir, "test.txt"), "r") as f:
             json_files = f.read().split("\n")
-        self.json_files = [os.path.join(self.json_dir, json_p) for json_p in json_files]
+        self.json_files = [
+            os.path.join(self.json_dir, json_p) for json_p in json_files
+        ]
         # add an extra image from the training set to the validation set (for debugging purposes)
         with open(os.path.join(self.json_dir, "train.txt"), "r") as f:
             json_files = f.read().split("\n")
         n_train_ims = len(json_files)
         self.all_ids = [i + n_train_ims for i, j in enumerate(self.json_files)]
-        self.json_files = [os.path.join(self.json_dir, json_files[0])] + self.json_files
+        self.json_files = [
+            os.path.join(self.json_dir, json_files[0])
+        ] + self.json_files
         self.all_ids = [0] + self.all_ids
 
     def init_scaling_params(self):
-        print("Could not find a scene.loc file in the root directory, creating one...")
+        print(
+            "Could not find a scene.loc file in the root directory, creating one..."
+        )
         print("Warning: this can take some minutes")
         all_json = glob.glob("{}/*.json".format(self.json_dir))
         all_rays = []
         for json_p in all_json:
             d = sat_utils.read_dict_from_json(json_p)
-            h, w = int(d["height"] // self.img_downscale), int(d["width"] // self.img_downscale)
-            rpc = sat_utils.rescale_rpc(rpcm.RPCModel(d["rpc"], dict_format="rpcm"), 1.0 / self.img_downscale)
+            h, w = int(d["height"] // self.img_downscale), int(
+                d["width"] // self.img_downscale
+            )
+            rpc = sat_utils.rescale_rpc(
+                rpcm.RPCModel(d["rpc"], dict_format="rpcm"),
+                1.0 / self.img_downscale,
+            )
             min_alt, max_alt = float(d["min_alt"]), float(d["max_alt"])
             cols, rows = np.meshgrid(np.arange(w), np.arange(h))
-            rays = get_rays(cols.flatten(), rows.flatten(), rpc, min_alt, max_alt)
+            rays = get_rays(
+                cols.flatten(), rows.flatten(), rpc, min_alt, max_alt
+            )
             all_rays += [rays]
         all_rays = torch.cat(all_rays, 0)
         near_points = all_rays[:, :3]
@@ -151,9 +191,15 @@ class SatelliteDataset(Dataset):
         all_points = torch.cat([near_points, far_points], 0)
 
         d = {}
-        d["X_scale"], d["X_offset"] = sat_utils.rpc_scaling_params(all_points[:, 0])
-        d["Y_scale"], d["Y_offset"] = sat_utils.rpc_scaling_params(all_points[:, 1])
-        d["Z_scale"], d["Z_offset"] = sat_utils.rpc_scaling_params(all_points[:, 2])
+        d["X_scale"], d["X_offset"] = sat_utils.rpc_scaling_params(
+            all_points[:, 0]
+        )
+        d["Y_scale"], d["Y_offset"] = sat_utils.rpc_scaling_params(
+            all_points[:, 1]
+        )
+        d["Z_scale"], d["Z_offset"] = sat_utils.rpc_scaling_params(
+            all_points[:, 2]
+        )
         sat_utils.write_dict_to_json(d, f"{self.json_dir}/scene.loc")
         print("... done !")
 
@@ -186,31 +232,48 @@ class SatelliteDataset(Dataset):
             if self.cache_dir is not None and os.path.exists(cache_path):
                 rays = torch.load(cache_path)
             else:
-                h, w = int(d["height"] // self.img_downscale), int(d["width"] // self.img_downscale)
-                rpc = sat_utils.rescale_rpc(rpcm.RPCModel(d["rpc"], dict_format="rpcm"), 1.0 / self.img_downscale)
+                h, w = int(d["height"] // self.img_downscale), int(
+                    d["width"] // self.img_downscale
+                )
+                rpc = sat_utils.rescale_rpc(
+                    rpcm.RPCModel(d["rpc"], dict_format="rpcm"),
+                    1.0 / self.img_downscale,
+                )
                 min_alt, max_alt = float(d["min_alt"]), float(d["max_alt"])
                 cols, rows = np.meshgrid(np.arange(w), np.arange(h))
-                rays = get_rays(cols.flatten(), rows.flatten(), rpc, min_alt, max_alt)
+                rays = get_rays(
+                    cols.flatten(), rows.flatten(), rpc, min_alt, max_alt
+                )
                 if self.cache_dir is not None:
                     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
                     torch.save(rays, cache_path)
             rays = self.normalize_rays(rays)
 
             # get sun direction
-            sun_dirs = self.get_sun_dirs(float(d["sun_elevation"]), float(d["sun_azimuth"]), rays.shape[0])
+            sun_dirs = self.get_sun_dirs(
+                float(d["sun_elevation"]),
+                float(d["sun_azimuth"]),
+                rays.shape[0],
+            )
 
             all_ids += [t * torch.ones(rays.shape[0], 1)]
             all_rgbs += [rgbs]
             all_rays += [rays]
             all_sun_dirs += [sun_dirs]
             if verbose:
-                print("Image {} loaded ( {} / {} )".format(img_id, t + 1, len(json_files)))
+                print(
+                    "Image {} loaded ( {} / {} )".format(
+                        img_id, t + 1, len(json_files)
+                    )
+                )
 
         all_ids = torch.cat(all_ids, 0)
         all_rays = torch.cat(all_rays, 0)  # (len(json_files)*h*w, 8)
         all_rgbs = torch.cat(all_rgbs, 0)  # (len(json_files)*h*w, 3)
         all_sun_dirs = torch.cat(all_sun_dirs, 0)  # (len(json_files)*h*w, 3)
-        all_rays = torch.hstack([all_rays, all_sun_dirs])  # (len(json_files)*h*w, 11)
+        all_rays = torch.hstack(
+            [all_rays, all_sun_dirs]
+        )  # (len(json_files)*h*w, 11)
         all_rays = all_rays.type(torch.FloatTensor)
         all_rgbs = all_rgbs.type(torch.FloatTensor)
         return all_rays, all_rgbs, all_ids
@@ -238,7 +301,13 @@ class SatelliteDataset(Dataset):
         """
         sun_el = np.radians(sun_elevation_deg)
         sun_az = np.radians(sun_azimuth_deg)
-        sun_d = np.array([np.sin(sun_az) * np.cos(sun_el), np.cos(sun_az) * np.cos(sun_el), np.sin(sun_el)])
+        sun_d = np.array(
+            [
+                np.sin(sun_az) * np.cos(sun_el),
+                np.cos(sun_az) * np.cos(sun_el),
+                np.sin(sun_el),
+            ]
+        )
         sun_dirs = torch.from_numpy(np.tile(sun_d, (n_rays, 1)))
         sun_dirs = sun_dirs.type(torch.FloatTensor)
         return sun_dirs
@@ -271,10 +340,14 @@ class SatelliteDataset(Dataset):
 
         # convert to lat-lon-alt
         xyz = xyz.data.numpy()
-        lats, lons, alts = sat_utils.ecef_to_latlon_custom(xyz[:, 0], xyz[:, 1], xyz[:, 2])
+        lats, lons, alts = sat_utils.ecef_to_latlon_custom(
+            xyz[:, 0], xyz[:, 1], xyz[:, 2]
+        )
         return lats, lons, alts
 
-    def get_dsm_from_nerf_prediction(self, rays, depth, dsm_path=None, roi_txt=None):
+    def get_dsm_from_nerf_prediction(
+        self, rays, depth, dsm_path=None, roi_txt=None
+    ):
         """
         Compute a DSM from a NeRF depth prediction output
         Args:
@@ -285,7 +358,6 @@ class SatelliteDataset(Dataset):
         Returns:
             dsm: (h, w) numpy array with the output dsm
         """
-
         # get point cloud from nerf depth prediction
         lats, lons, alts = self.get_latlonalt_from_nerf_prediction(rays, depth)
         easts, norths = sat_utils.utm_from_latlon(lats, lons)
@@ -314,7 +386,16 @@ class SatelliteDataset(Dataset):
         import rasterio
 
         # run plyflatten
-        dsm = plyflatten(cloud, xoff, yoff, resolution, xsize, ysize, radius=1, sigma=float("inf"))
+        dsm = plyflatten(
+            cloud,
+            xoff,
+            yoff,
+            resolution,
+            xsize,
+            ysize,
+            radius=1,
+            sigma=float("inf"),
+        )
 
         n = utm.latlon_to_zone_number(lats[0], lons[0])
         l = utm.latitude_to_zone_letter(lats[0])
@@ -331,7 +412,9 @@ class SatelliteDataset(Dataset):
             profile["driver"] = "GTiff"
             profile["nodata"] = float("nan")
             profile["crs"] = crs_proj
-            profile["transform"] = affine.Affine(resolution, 0.0, xoff, 0.0, -resolution, yoff)
+            profile["transform"] = affine.Affine(
+                resolution, 0.0, xoff, 0.0, -resolution, yoff
+            )
             with rasterio.open(dsm_path, "w", **profile) as f:
                 f.write(dsm[:, :, 0], 1)
 
@@ -347,12 +430,25 @@ class SatelliteDataset(Dataset):
     def __getitem__(self, idx):
         # take a batch from the dataset
         if self.train:
-            sample = {"rays": self.all_rays[idx], "rgbs": self.all_rgbs[idx], "ts": self.all_ids[idx].long()}
+            sample = {
+                "rays": self.all_rays[idx],
+                "rgbs": self.all_rgbs[idx],
+                "ts": self.all_ids[idx].long(),
+            }
         else:
             rays, rgbs, _ = self.load_data([self.json_files[idx]])
             ts = self.all_ids[idx] * torch.ones(rays.shape[0], 1)
             d = sat_utils.read_dict_from_json(self.json_files[idx])
             img_id = sat_utils.get_file_id(d["img"])
-            h, w = int(d["height"] // self.img_downscale), int(d["width"] // self.img_downscale)
-            sample = {"rays": rays, "rgbs": rgbs, "ts": ts.long(), "src_id": img_id, "h": h, "w": w}
+            h, w = int(d["height"] // self.img_downscale), int(
+                d["width"] // self.img_downscale
+            )
+            sample = {
+                "rays": rays,
+                "rgbs": rgbs,
+                "ts": ts.long(),
+                "src_id": img_id,
+                "h": h,
+                "w": w,
+            }
         return sample
